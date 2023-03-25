@@ -48,6 +48,8 @@ def parse_company_page(html):
     ANCHOR_COLS = ["Company name"]
 
     root = etree.fromstring(html, etree.HTMLParser())
+    if root is None:
+        return pd.DataFrame()
     table = root.xpath("//table")[0]
 
     return _parse_table(table, ANCHOR_COLS)
@@ -55,18 +57,26 @@ def parse_company_page(html):
 
 def _remove_unnec_list_cols(df):
     for c in df.columns:
-        if df[c].apply(lambda x: len(x) <= 1).all():
+        if df[c].apply(lambda x: isinstance(x, list) and len(x) <= 1).all():
             df[c] = df[c].apply(lambda x: x[0] if len(x) == 1 else "")
+    return df
+
+
+def _remove_cols_without_colname(df):
+    for c in df.columns:
+        if not c:
+            df = df.drop(columns=[c], axis=1)
     return df
 
 
 def post_process_company_df(df):
     df = _remove_unnec_list_cols(df)
+    df = _remove_cols_without_colname(df)
 
     df['Company url'] = df['Company name'].apply(lambda x: x['url'])
     df['Company name'] = df['Company name'].apply(lambda x: x['name'])
 
-    return df.drop_duplicates()
+    return df.drop_duplicates("Company url")
 
 
 def parse_round_page(html):
@@ -79,12 +89,13 @@ def parse_round_page(html):
 
 def post_process_round_df(df):
     df = _remove_unnec_list_cols(df)
+    df = _remove_cols_without_colname(df)
 
     df['Round Url'] = df['Company Name'].apply(lambda x: x[0]['url'])
     df['Company Url'] = df['Round Url'].apply(lambda x: "/".join(x.split("/")[:3]))
     df['Company Name'] = df['Company Name'].apply(lambda x: x[0]['name'])
 
-    return df.drop_duplicates()
+    return df.drop_duplicates("Round Url")
 
 
 def parse_investor_page(html):
@@ -97,10 +108,11 @@ def parse_investor_page(html):
 
 def post_process_investor_df(df):
     df = _remove_unnec_list_cols(df)
+    df = _remove_cols_without_colname(df)
 
     df['Investor Url'] = df['Investors'].apply(lambda x: x['url'])
     df['Investor Name'] = df['Investors'].apply(lambda x: x['name'])
-    return df.drop(columns=['Investors'], axis=1).drop_duplicates()
+    return df.drop(columns=['Investors'], axis=1).drop_duplicates("Investor Url")
 
 
 # Very different DOM structure from other pages
@@ -154,7 +166,9 @@ def parse_acquisition_page(html):
 
 
 def post_process_acquisition_df(df):
+    df = df[~df['acquirer'].isnull()].copy()
     df = _remove_unnec_list_cols(df)
+    df = _remove_cols_without_colname(df)
 
     df['Startup Url'] = df['Startup'].apply(lambda x: x['url'])
     df['Startup Name'] = df['Startup'].apply(lambda x: x['name'])
@@ -162,4 +176,40 @@ def post_process_acquisition_df(df):
 
     df['Acquirer Url'] = df['acquirer'].apply(lambda x: x['url'])
     df['Acquirer Name'] = df['acquirer'].apply(lambda x: x['name'])
-    return df.drop(columns=['acquirer'], axis=1).drop_duplicates()
+
+    # TODO. handle multiple language situation
+    return df.drop(columns=['acquirer'], axis=1).drop_duplicates(["Startup Url", "Acquirer Url", "Date"])
+
+STATUS_MAPPING = {
+    "Under Investigation": "operating",
+    "": "operating",
+    "Preparation (company registration only)": "operating",
+    "Unable to investigate (for reasons such as inability to access HP)": "operating",
+    "Survey completed (other reasons)": "closed",
+    "Survey completed (dissolution)": "closed",
+    "Survey completed (subsidiary of listed company)": "acquired",
+    "Survey completed (IPO domestic market)": "ipo",
+    "Not subject to investigation (other reasons)": "closed",
+    "Survey completed (merger)": "acquired",
+    "Survey completed (disappeared)": "closed",
+    "Not subject to survey (wholly owned subsidiary of listed company)": "acquired",
+    "調査継続": "operating",
+    "Under Investigation (energetic small and medium-sized enterprises)": "operating",
+    "Survey completed (acquisition)": "acquired",
+    "Survey completed (company dissolved due to business transfer)": "acquired",
+    "未評価(会社登録のみ)": "operating",
+    "Survey completed (consolidated merger)": "acquired",
+    "調査終了(その他の事由)": "closed",
+    "Not subject to survey (Overseas VB)": "acquired",
+    "Survey completed (IPO overseas market)": "ipo",
+    "調査不能(HPアクセス不能などの事由)": "operating",
+    "調査終了(上場企業の子会社化)": "acquired"                                                          
+}
+
+def map_company_status(status):
+    if pd.isnull(status):
+        return "operating"
+    if status in STATUS_MAPPING:
+        return STATUS_MAPPING[status]
+    else:
+        raise Exception("Unseen status: {}".format(status))
