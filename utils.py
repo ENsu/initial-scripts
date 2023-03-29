@@ -24,15 +24,23 @@ def get_env_var(key):
 
 S3_KEY_ID = get_env_var("S3_KEY_ID")
 S3_SECRET_KEY = get_env_var("S3_SECRET_KEY")
+HL_S3_KEY_ID = get_env_var("HL_S3_KEY_ID")
+HL_S3_SECRET_KEY = get_env_var("HL_S3_SECRET_KEY")
+
 
 session = boto3.Session(aws_access_key_id=S3_KEY_ID, aws_secret_access_key=S3_SECRET_KEY)
 s3_client = session.client('s3')
 s3_bucket_name = 'infinity-airflow'
 
+hl_session = boto3.Session(aws_access_key_id=HL_S3_KEY_ID, aws_secret_access_key=HL_S3_SECRET_KEY)
+hl_s3_client = hl_session.client('s3')
+hl_bucket_name = 'jp-tw-startup-crawl'
+
 jp_postal_obj = s3_client.get_object(Bucket=s3_bucket_name, Key="jp_postal_code_to_geo_info.csv")
 jp_postal_df = pd.read_csv(io.BytesIO(jp_postal_obj['Body'].read()), encoding='utf8')
 
 get_postal_by_addr_re = r'\b(\d{3}\-\d{4})\b'
+
 
 def get_postal_by_addr(addr):
     try:
@@ -63,6 +71,7 @@ def get_city_by_addr(addr):
             return cities[0]
     return None
 
+
 def cleanup_prefectur_info(prefecture_sereis):
     # location related preprocessing
     prefecture_sereis = prefecture_sereis.apply(lambda x: x.lower().replace("prefecture", "").strip().capitalize() if pd.notnull(x) else x)
@@ -88,11 +97,15 @@ def cleanup_prefectur_info(prefecture_sereis):
 
 psl = PublicSuffixList()
 
-def get_base_domain(url):
+
+def get_base_domain(url: str) -> str:
     if pd.isnull(url):
         return None
+    if not (url.startswith("http://") or url.startswith("https://")):
+        url = "https://" + url
     hostname = urlparse(url).hostname
     return psl.get_public_suffix(hostname)
+
 
 def _get_exch_rate(base_cur, to_cur, date=None):
     assert len(to_cur) == 3, f'Not valid currency: {to_cur}'
@@ -117,6 +130,7 @@ def _get_exch_rate(base_cur, to_cur, date=None):
 forex_obj = s3_client.get_object(Bucket=s3_bucket_name, Key="forexrec.csv")
 forex = pd.read_csv(io.BytesIO(forex_obj['Body'].read()), encoding='utf8')
 
+
 def get_usd(cur, date, value):
     global forex
     if pd.isnull(value) or pd.isnull(date) or pd.isnull(cur):
@@ -133,7 +147,7 @@ def get_usd(cur, date, value):
         rate = _get_exch_rate(cur, 'USD', date=date)
         new_dict = {"date": date, "base_cur": cur, "dest_cur": "USD", "rate": rate}
         forex = pd.concat([forex, pd.DataFrame([new_dict])], axis=0, ignore_index=True)
-        
+
         # save back to s3 file
         csv_buffer = io.StringIO()
         forex.to_csv(csv_buffer, index=False)
@@ -144,6 +158,7 @@ def get_usd(cur, date, value):
     else:
         raise Exception(f"Get multiple rows with same cur: {cur}, date: {date}, data: {rate_data}")
     return value * rate
+
 
 def split2row_with_index(df, colnames, show_index=False):
 
@@ -201,3 +216,11 @@ def json_col_to_df(df, col_name, prefix=True, keys_drop=[], chunk_size=int(1e5))
         my_list.append(_json_col_to_df(df.iloc[start:end, :], col_name, prefix, keys_drop))
 
     return pd.concat(my_list, axis=0)
+
+
+def export_to_s3(df, file_name):
+    csv_buffer = io.StringIO()
+    df.to_csv(csv_buffer, index=False)
+    csv_buffer.seek(0)
+    s3_client.put_object(Bucket=s3_bucket_name, Body=csv_buffer.getvalue(), Key=f'exports/{file_name}')
+    hl_s3_client.put_object(Bucket=hl_bucket_name, Body=csv_buffer.getvalue(), Key=file_name)

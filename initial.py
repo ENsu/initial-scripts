@@ -76,7 +76,7 @@ def post_process_company_df(df):
     df['Company url'] = df['Company name'].apply(lambda x: x['url'])
     df['Company name'] = df['Company name'].apply(lambda x: x['name'])
 
-    return df.drop_duplicates("Company url")
+    return df.sort_values(['_timestamp'], ascending=False).drop_duplicates("Company url", keep="first")
 
 
 def parse_round_page(html):
@@ -95,24 +95,33 @@ def post_process_round_df(df):
     df['Company Url'] = df['Round Url'].apply(lambda x: "/".join(x.split("/")[:3]))
     df['Company Name'] = df['Company Name'].apply(lambda x: x[0]['name'])
 
-    return df.drop_duplicates("Round Url")
+    return df.sort_values(['_timestamp'], ascending=False).drop_duplicates("Round Url", keep="first")
 
 
 def parse_investor_page(html):
-    ANCHOR_COLS = ["Investors"]
     root = etree.fromstring(html, etree.HTMLParser())
-    table = root.xpath("//table")[0]
+    urls = root.xpath(".//*[*[text()='Website']]/*/a/text()")
+    if len(urls) == 0:
+        urls = root.xpath(".//*[*[text()='URL']]/*/a/text()")  # JP version
 
-    return _parse_table(table, ANCHOR_COLS)
+    company_name = root.xpath(".//*[*[text()='English name']]/dd/text()")
+    if len(company_name) == 0:
+        company_name = root.xpath(".//*[*[text()='英語名']]/dd/text()")    # JP version
+    if len(company_name) == 0:
+        company_name = root.xpath(".//*[*[text()='Company Name']]/dd/text()")
+    if len(company_name) == 0:
+        company_name = root.xpath(".//*[*[text()='企業名']]/dd/text()")
+
+    if len(company_name) == 0 or len(urls) == 0:
+        return {}
+
+    return {"Company name": company_name[0], "website": urls[0] if len(urls) > 0 else ""}
 
 
 def post_process_investor_df(df):
     df = _remove_unnec_list_cols(df)
     df = _remove_cols_without_colname(df)
-
-    df['Investor Url'] = df['Investors'].apply(lambda x: x['url'])
-    df['Investor Name'] = df['Investors'].apply(lambda x: x['name'])
-    return df.drop(columns=['Investors'], axis=1).drop_duplicates("Investor Url")
+    return df.sort_values(['_timestamp'], ascending=False).drop_duplicates(['Company url'], keep='first')
 
 
 # Very different DOM structure from other pages
@@ -123,8 +132,7 @@ def parse_acquisition_page(html):
     NEWS_TITLE_MAP = {"スタートアップ": "Startup",
                       "業種": "Industry",
                       "設立": "Founded Date",
-                      "事業内容": "Description"
-                }
+                      "事業内容": "Description"}
 
     root = etree.fromstring(html, etree.HTMLParser())
     news = root.xpath("//div[contains(@class, 'finance-news')]")[0]
@@ -167,6 +175,7 @@ def parse_acquisition_page(html):
 
 def post_process_acquisition_df(df):
     df = df[~df['acquirer'].isnull()].copy()
+    df['Acquisition amount'] = df['Acquisition amount'].apply(lambda x: x[0])
     df = _remove_unnec_list_cols(df)
     df = _remove_cols_without_colname(df)
 
@@ -178,7 +187,8 @@ def post_process_acquisition_df(df):
     df['Acquirer Name'] = df['acquirer'].apply(lambda x: x['name'])
 
     # TODO. handle multiple language situation
-    return df.drop(columns=['acquirer'], axis=1).drop_duplicates(["Startup Url", "Acquirer Url", "Date"])
+    return df.sort_values(['_timestamp'], ascending=False).drop(columns=['acquirer'], axis=1).drop_duplicates(["Startup Url", "Acquirer Url", "Date"], keep='first')
+
 
 STATUS_MAPPING = {
     "Under Investigation": "operating",
@@ -206,6 +216,7 @@ STATUS_MAPPING = {
     "調査終了(上場企業の子会社化)": "acquired"                                                          
 }
 
+
 def map_company_status(status):
     if pd.isnull(status):
         return "operating"
@@ -213,3 +224,16 @@ def map_company_status(status):
         return STATUS_MAPPING[status]
     else:
         raise Exception("Unseen status: {}".format(status))
+
+
+def map_acq_amount_to_num(acq_mount_str: str) -> int:
+    if acq_mount_str in ["金額不明", "amount unknown"]:
+        return 0
+    elif acq_mount_str.endswith("千円"):
+        return int(acq_mount_str.replace(",", "").replace("千円", "")) * 1000
+    elif acq_mount_str.endswith("thousand yen"):
+        return int(acq_mount_str.replace(",", "").replace("thousand yen", "")) * 1000
+    elif acq_mount_str.endswith("yen"):
+        return int(acq_mount_str.replace(",", "").replace("yen", ""))
+    else:
+        raise Exception("Unseen acq amount: {}".format(acq_mount_str))
