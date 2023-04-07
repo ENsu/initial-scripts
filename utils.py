@@ -224,3 +224,17 @@ def export_to_s3(df, file_name):
     csv_buffer.seek(0)
     s3_client.put_object(Bucket=s3_bucket_name, Body=csv_buffer.getvalue(), Key=f'exports/{file_name}')
     hl_s3_client.put_object(Bucket=hl_bucket_name, Body=csv_buffer.getvalue(), Key=file_name)
+
+
+def validate_date_str_format(date_str, blankable=False):
+    if date_str == "" and blankable:
+        return True
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+        return True
+    except ValueError:
+        print(f"Incorrect data format: {date_str}, should be YYYY-MM-DD")
+        return False
+    except TypeError:
+        print(f"Incorrect data type: {date_str}, should be YYYY-MM-DD")
+        return False
