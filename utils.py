@@ -226,6 +226,20 @@ def export_to_s3(df, file_name):
     hl_s3_client.put_object(Bucket=hl_bucket_name, Body=csv_buffer.getvalue(), Key=file_name)
 
 
+def validate_datetime_str_format(date_str, blankable=False):
+    if date_str == "" and blankable:
+        return True
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+        return True
+    except ValueError:
+        print(f"Incorrect data format: {date_str}, should be %Y-%m-%d %H:%M:%S")
+        return False
+    except TypeError:
+        print(f"Incorrect data type: {type(date_str)}, should be str")
+        return False
+    
+
 def validate_date_str_format(date_str, blankable=False):
     if date_str == "" and blankable:
         return True
@@ -233,8 +247,8 @@ def validate_date_str_format(date_str, blankable=False):
         datetime.strptime(date_str, "%Y-%m-%d")
         return True
     except ValueError:
-        print(f"Incorrect data format: {date_str}, should be YYYY-MM-DD")
+        print(f"Incorrect data format: {date_str}, should be %Y-%m-%d")
         return False
     except TypeError:
-        print(f"Incorrect data type: {date_str}, should be YYYY-MM-DD")
+        print(f"Incorrect data type: {type(date_str)}, should be str")
         return False
