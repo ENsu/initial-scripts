@@ -1,0 +1,6 @@
+2023-04-15 00:34:25.763 | INFO     | __main__:<module>:2 - cb_organization_df shape: (24681, 41)
+2023-04-15 00:34:25.764 | INFO     | __main__:<module>:3 - cb_rounds_df shape: (55023, 24)
+2023-04-15 00:34:25.765 | INFO     | __main__:<module>:4 - cb_investments_df shape: (35243, 14)
+2023-04-15 00:34:25.766 | INFO     | __main__:<module>:5 - cb_ipo_df shape: (520, 27)
+2023-04-15 00:34:25.766 | INFO     | __main__:<module>:6 - cb_acquisition_df shape: (654, 27)
+
